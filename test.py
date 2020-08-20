@@ -3,7 +3,7 @@ import tarfile
 from io import BytesIO
 from typing import Dict, Tuple, List, Union, Optional
 from utils import rouge, Vocab, OOVDict, Batch, format_tokens, format_rouge_scores, Dataset
-from model import DEVICE, Seq2SeqOutput, Seq2Seq
+from Pointgen import DEVICE, Seq2SeqOutput, TransformerPointgen
 from params import Params
 from tqdm import tqdm
 
@@ -27,7 +27,7 @@ def decode_batch_output(decoded_tokens, vocab: Vocab, oov_dict: OOVDict) -> List
   return decoded_batch
 
 
-def decode_batch(batch: Batch, model: Seq2Seq, vocab: Vocab, criterion=None, *, pack_seq=True,
+def decode_batch(batch: Batch, model: TransformerPointgen, vocab: Vocab, criterion=None, *, pack_seq=True,
                  show_cover_loss=False) -> Tuple[List[List[str]], Seq2SeqOutput]:
   """Test the `model` on the `batch`, return the decoded textual tokens and the Seq2SeqOutput."""
   if not pack_seq:
@@ -62,7 +62,7 @@ def decode_one(*args, **kwargs):
   return decoded_doc, out
 
 
-def eval_batch(batch: Batch, model: Seq2Seq, vocab: Vocab, criterion=None, *, pack_seq=True,
+def eval_batch(batch: Batch, model: TransformerPointgen, vocab: Vocab, criterion=None, *, pack_seq=True,
                show_cover_loss=False) -> Tuple[float, float]:
   """Test the `model` on the `batch`, return the ROUGE score and the loss."""
   decoded_batch, out = decode_batch(batch, model, vocab, criterion=criterion, pack_seq=pack_seq,
@@ -94,7 +94,7 @@ def eval_batch_output(tgt_tensor_or_tokens: Union[torch.Tensor, List[List[str]]]
   return scores
 
 
-def eval_bs_batch(batch: Batch, model: Seq2Seq, vocab: Vocab, *, pack_seq=True, beam_size=4,
+def eval_bs_batch(batch: Batch, model: TransformerPointgen, vocab: Vocab, *, pack_seq=True, beam_size=4,
                   min_out_len=1, max_out_len=None, len_in_words=True, best_only=True,
                   details: bool=True) -> Tuple[Optional[List[Dict[str, float]]], Optional[str]]:
   """
@@ -141,7 +141,7 @@ def eval_bs_batch(batch: Batch, model: Seq2Seq, vocab: Vocab, *, pack_seq=True, 
   return scores, file_content
 
 
-def eval_bs(test_set: Dataset, vocab: Vocab, model: Seq2Seq, params: Params):
+def eval_bs(test_set: Dataset, vocab: Vocab, model: TransformerPointgen, params: Params):
   test_gen = test_set.generator(1, vocab, None, True if params.pointer else False)
   n_samples = int(params.test_sample_ratio * len(test_set.pairs))
 

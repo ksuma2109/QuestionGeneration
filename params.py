@@ -41,7 +41,7 @@ class Params:
   n_batches: int = 1000  # how many batches per epoch
   val_batch_size: int = 32
   n_val_batches: int = 100  # how many validation batches per epoch
-  n_epochs: int = 5
+  n_epochs: int = 100
   pack_seq: bool = True  # use packed sequence to skip PAD inputs?
   forcing_ratio: float = 0.75  # initial percentage of using teacher forcing
   partial_forcing: bool = True  # in a seq, can some steps be teacher forced and some not?
@@ -56,7 +56,7 @@ class Params:
 
   # Data
   embed_file: Optional[str] = 'data/glove.6B/glove.6B.100d.txt'  # use pre-trained embeddings
-  data_path: str = 'data/train_small.txt'
+  data_path: str = 'data/train.txt'
   val_data_path: str = None
   # val_data_path: Optional[str] = 'data/cnndm.val.gz'
   max_src_len: int = 400  # exclusive of special tokens such as EOS
@@ -75,7 +75,7 @@ class Params:
   out_len_in_words: bool = False
   test_data_path: str = 'data/test.txt'
   test_sample_ratio: float = 1  # what portion of the test data is used? (1 for all data)
-  test_save_results: bool = False
+  test_save_results: bool = True
 
   def update(self, cmd_args: List[str]):
     """Update configuration by a list of command line arguments"""

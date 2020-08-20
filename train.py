@@ -13,13 +13,13 @@ from torch.nn.utils import clip_grad_norm_
 import torch.nn.functional as F
 from tqdm import tqdm
 from utils import Dataset, show_plot, Vocab, Batch
-from model import Seq2Seq, DEVICE
+# from model import TransformerPointgen, DEVICE
 from params import Params
 from test import eval_batch, eval_batch_output
-from Pointgen import TransformerPointgen
+from Pointgen import TransformerPointgen, DEVICE
 
 
-def train_batch(batch: Batch, model: Seq2Seq, criterion, optimizer, *,
+def train_batch(batch: Batch, model: TransformerPointgen, criterion, optimizer, *,
                 pack_seq=True, forcing_ratio=0.5, partial_forcing=True, sample=False,
                 rl_ratio: float=0, vocab=None, grad_norm: float=0, show_cover_loss=False):
   if not pack_seq:
@@ -65,7 +65,7 @@ def train_batch(batch: Batch, model: Seq2Seq, criterion, optimizer, *,
   return loss_value / target_length, greedy_rouge
 
 
-def train(train_generator, vocab: Vocab, model: Seq2Seq, params: Params, valid_generator=None,
+def train(train_generator, vocab: Vocab, model: TransformerPointgen, params: Params, valid_generator=None,
           saved_state: dict=None):
   # variables for plotting
   plot_points_per_epoch = max(math.log(params.n_batches, 1.6), 1.)
@@ -124,7 +124,6 @@ def train(train_generator, vocab: Vocab, model: Seq2Seq, params: Params, valid_g
                                  partial_forcing=params.partial_forcing, sample=params.sample,
                                  rl_ratio=rl_ratio, vocab=vocab, grad_norm=params.grad_norm,
                                  show_cover_loss=params.show_cover_loss)
-
       epoch_loss += float(loss)
       epoch_avg_loss = epoch_loss / batch_count
       if metric is not None:  # print ROUGE as well if reinforcement learning is enabled
@@ -140,6 +139,7 @@ def train(train_generator, vocab: Vocab, model: Seq2Seq, params: Params, valid_g
         period_avg_loss = sum(cached_losses) / len(cached_losses)
         plot_losses.append(period_avg_loss)
         cached_losses = []
+      torch.cuda.empty_cache()
 
     if valid_generator is not None:  # validation batches
       valid_loss, valid_metric = 0, 0

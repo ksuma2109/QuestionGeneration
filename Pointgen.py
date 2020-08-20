@@ -417,7 +417,7 @@ class TransformerPointgen(nn.Module):
         output.scatter_add_(2, inp, copy_probs)
         # output.scatter_add_(2, inp[:, :-1, :], copy_probs[:, :-1, :])
         output = F.softmax(output, dim=2)
-        tgt = torch.zeros(1, ext_vocab_size).repeat(batch_size, 1, 1)
+        tgt = torch.zeros(1, ext_vocab_size, device=DEVICE).repeat(batch_size, 1, 1)
         tgt[:, :, self.vocab.SOS] = 1.0
         output1 = torch.cat((tgt, output[:, :target_length-1, :]), dim=1)
         # print(output1.shape)
