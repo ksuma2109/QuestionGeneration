@@ -258,7 +258,7 @@ class TransformerPointgen(nn.Module):
         """
 
         super(TransformerPointgen, self).__init__()
-
+        self.vocab = vocab
         self.pad = vocab.PAD
         self.UNK = vocab.UNK
         self.vocab_size = len(vocab)
@@ -308,26 +308,41 @@ class TransformerPointgen(nn.Module):
                 saved_out: Seq2SeqOutput=None, visualize: bool=None, include_cover_loss: bool=False) -> Seq2SeqOutput:
         input_length = input_tensor.size(0)
         batch_size = input_tensor.size(1)
-        log_prob = not (sample or self.decoder.pointer)
-        if(visualize is None):
-            visualize = criterion is None
-        if(visualize and not(self.enc_attn or self.pointer)):
-            visualize = False
+        # log_prob = not (sample or self.decoder.pointer)
+        # if(visualize is None):
+        #     visualize = criterion is None
+        # if(visualize and not(self.enc_attn or self.pointer)):
+        #     visualize = False
 
         if(target_tensor is None):
             target_length = self.max_dec_steps
         else:
             target_length = target_tensor.size(0)
-        target_length = target_length+1å
+        # target_length = target_length+1
 
         use_teacher_forcing = True
         # print("input len: ")
         # print(input_tensor.shape)
         # print("target len: ")
         # print(target_tensor.shape)
-        inp_tensor = torch.ones(batch_size, 1)
+        # inp_tensor = torch.ones(batch_size, 1)
         inp_tensor = input_tensor.transpose(0, 1)
-        # out_tensor = target_tensor.transpose(0, 1)
+
+        # tgt = torch.full((batch_size, 1), self.vocab.SOS, dtype=torch.int64, device=DEVICE)
+        # print("shapes")
+        # print(tgt.shape)
+        # print(target_tensor.shape)
+        
+        out_tensor = target_tensor.transpose(0, 1)
+        # if(target_tensor.size(0)==0):
+        #     out_tensor = tgt
+        # else:
+        #     out_tensor = torch.cat((tgt, target_tensor.transpose(0, 1)), dim=1)
+        # print(tgt.dtype)
+        # print(target_tensor.dtype)
+        
+        
+        
         input_mask = (inp_tensor != self.pad).unsqueeze(-2)
         # print("Input mask")
         # print(input_mask.shape)
@@ -335,6 +350,8 @@ class TransformerPointgen(nn.Module):
         # output_mask = output_mask.transpose(1, 2).transpose(0, 1)
         # print("Output mask")
         # print(output_mask.shape)
+        # print(inp_tensor.shape)
+        # print(ext_vocab_size)
         input_embedding = self.embedding(self.filter_oov(inp_tensor, ext_vocab_size))
         # print("inp_tensor size")
         # print(inp_tensor.shape)
@@ -345,7 +362,7 @@ class TransformerPointgen(nn.Module):
         # print("E attn")
         # print(encoder_output.shape)
         # print(e_attn.shape)
-        out_tensor = torch.cat((torch.Tensor(batch_size, 1).fill_(self.vocab.SOS), target_tensor.transpose(0, 1)), dim=1)
+        
         output_embedding = self.embedding(self.filter_oov(out_tensor, ext_vocab_size))
         output_position = self.pos_encoding(output_embedding)
         output_embed = self.output_embed(output_position)
@@ -376,7 +393,9 @@ class TransformerPointgen(nn.Module):
         # print(gen_probs.shape)
         p_copy = 1.0-p_gen 
         # Output size - (B, OU, E_V_S, )
-        output = torch.zeros(batch_size, target_tensor.shape[0], ext_vocab_size)
+        output = torch.zeros(batch_size, target_length, ext_vocab_size, device=DEVICE)
+        # print("Loss")
+        # print(output.shape)
         output[:, :, :self.vocab_size] = gen_probs
         p_copy = p_copy.expand(batch_size, target_length, input_length)
         # print("P copy")
@@ -391,16 +410,26 @@ class TransformerPointgen(nn.Module):
         # print(p_copy.shape)
         inp = input_tensor.transpose(0, 1).unsqueeze(1).expand(batch_size, target_length, input_length)
         # probs = copy_probs.unsqueeze(1).expand(batch_size, target_length, input_length)
+        # print("Output")
+        # print(output.shape)
         # print(inp.shape)
-        # print(probs.shape)
+        # print(copy_probs.shape)
         output.scatter_add_(2, inp, copy_probs)
-        output1 = output[:, :target_length-1, :]
+        # output.scatter_add_(2, inp[:, :-1, :], copy_probs[:, :-1, :])
+        output = F.softmax(output, dim=2)
+        tgt = torch.zeros(1, ext_vocab_size).repeat(batch_size, 1, 1)
+        tgt[:, :, self.vocab.SOS] = 1.0
+        output1 = torch.cat((tgt, output[:, :target_length-1, :]), dim=1)
+        # print(output1.shape)
         # output = F.softmax(output, dim=2)
 
         # print("NLL Loss")
         # print(output.shape)
         # print(target_tensor.transpose(0, 1).shape)
-        ce_loss = F.cross_entropy(output1.transpose(1, 2), target_tensor.transpose(0, 1), reduction='mean')
+        
+        # print(output1.shape)
+        # print(target_tensor.shape)
+        ce_loss = F.cross_entropy(output1.transpose(1, 2), out_tensor, reduction='mean')
         # print(ce_loss.item())
 
         # enc_energy = self.enc_bilinear(decoder_output.transpose(1, 0), encoder_output.transpose(1, 0))
@@ -470,130 +499,121 @@ class TransformerPointgen(nn.Module):
         input_embed = self.input_embed(input_position)
         encoder_output, e_attn = self.encoder(input_embed, input_mask)
 
-        hypos = [Hypothesis([self.vocab.SOS], [], None, [], [], 1)]
+        hypos = [Hypothesis([self.vocab.SOS], [1.0], None, [], [], 1)]
         results, backup_results = [], []
         step=0
 
-        out_tensor = torch.Tensor(batch_size, 1).fill_(self.vocab.SOS)
-        hypos = [Hypothesis(out_tensor, [], None, [], [], 1)]
+        # out_tensor = torch.Tensor(batch_size, 1).fill_(self.vocab.SOS)
+        # hypos = [Hypothesis(out_tensor, [], None, [], [], 1)]
+
+        completed_hypos = []
 
         while hypos and step < 2*max_out_len:
-            n_hypos = len(hypos)
-            # if(n_hypos < beam_size):
-            #     hypos.extend(hypos[-1] for _ in range(beam_size-n_hypos))
-
-            output_embedding = self.embedding(self.filter_oov(out_tensor, ext_vocab_size))
-            output_position = self.pos_encoding(output_embedding)
-            output_embed = self.output_embed(output_position)
-            decoder_output, p_attn = self.decoder(output_embed, encoder_output, input_mask, output_mask)
-
-            at = torch.sum(p_attn, dim=1)
-            at = torch.softmax(at, dim=2)
-            context = torch.bmm(at, encoder_output)
-
-            dec_output = torch.cat((decoder_output, context), dim=2)
-
-            vocab1 = self.linear_vocab1(dec_output)
-
-            vocab_vec = self.linear_vocab2(vocab1)
-
-            p_gen = self.linear_gen(torch.cat((dec_output, output_embedding), dim=2))
-            gen_probs = p_gen*vocab_vec
-
-            p_copy = 1.0-p_gen 
-
-            output = torch.zeros(batch_size, target_tensor.shape[0], ext_vocab_size)
-            output[:, :, :self.vocab_size] = gen_probs
-            p_copy = p_copy.expand(batch_size, target_length, input_length)
-
-            copy_probs = p_copy*at
-
-            inp = input_tensor.transpose(0, 1).unsqueeze(1).expand(batch_size, target_length, input_length)
-
-            output.scatter_add_(2, inp, copy_probs)
-            output1 = output[:, :target_length-1, :]
-
-            ce_loss = F.cross_entropy(output1.transpose(1, 2), target_tensor.transpose(0, 1), reduction='mean')
-
-        for i in range(max_out_len):
-
-
-    def beam_search(self, input_tensor, input_lengths=None, ext_vocab_size=None, beam_size=4, *, 
-                    min_out_len=1, max_out_len=None, len_in_words=True) -> List[Hypothesis]:
-
-        batch_size = input_tensor.size(1)
-        assert batch_size == 1
-        if max_out_len is None:
-            max_out_len = self.max_dec_steps-1
-
-        encoder_embedded = self.embedding(self.filter_oov(input_tensor, ext_vocab_size))
-
-        input_mask = (input_mask != pad).unsqueeze(-2)
-        output_mask = make_std_mask(self.target_tensor, pad)
-        input_embedding = self.embedding(self.filter_oov(input_tensor, ext_vocab_size))
-        encoder_output = self.encoder(input_embedding, input_mask)
-        decoder_output, p_attn = self.decoder(target_tensor, encoder_output, input_mask, output_mask)
-        at = torch.sum(p_attn, dim=1)
-        at = torch.softmax(at, dim=2)
-        context = torch.bmm(at, encoder_output)
-        decoder_hidden = context
-
-        encoder_outputs = encoder_output.expand(-1, beam_size, -1).contiguous()
-        input_tensor = input_tensor.expand(-1, beam_size).contiguous()
-
-        hypos = [Hypothesis([self.vocab.SOS], [], decoder_hidden, [], [], 1)]
-        results, backup_results = [], []
-        step=0
-        while hypos and step < 2 * max_out_len:
-
-            n_hypos = len(hypos)
-            if(n_hypos < beam_size):
-                hypos.extend(hypos[-1] for _ in range(beam_size - n_hypos))
-
-            decoder_input = torch.tensor([h.tokens[-1] for h in hypos], device=DEVICE)
-            decoder_hidden = torch.cat([h.dec_hidden for h in hypos], 1)
-            decoder_states = torch.cat([torch.cat(h.dec_states, 0) for h in hypos], 1)
-
-            top_v, top_i = decoder_output.data.topk(beam_size)
-
-            new_hypos = []
-            for in_idx in range(n_hypos):
-                for out_idx in range(beam_size):
-                    new_tok = top_i[in_idx][out_idx].item()
-                    new_prob = top_vp[in_idx][out_idx].item()
-                    if(len_in_words):
-                        non_word = not self.vocab.is_word(new_tok)
+            n_hypos = []
+            for hypo in hypos:
+                output_tensor = torch.as_tensor(hypo.tokens, dtype=torch.long, device=DEVICE).unsqueeze(1)
+                # print("Output tensor type")
+                # print(output_tensor.dtype)
+                r = self.forward(input_tensor, output_tensor, ext_vocab_size=ext_vocab_size)
+                # print(r.ptr_probs.shape)
+                top_v, top_k = r.ptr_probs.data.topk(beam_size, dim=2)
+                # print(top_v)
+                # print(top_k)
+                for i in range(0, len(top_k)):
+                    new_hypo = hypo.create_next(top_k[0][0][i].item(), top_v[0][0][i].item(), None, [], [], 1)
+                    if(top_k[0][0][i].item()==self.vocab.EOS):
+                        completed_hypos.append(new_hypo)
                     else:
-                        non_word = new_tok == self.vocab.EOS
+                        n_hypos.append(new_hypo)
 
-                    new_hypo = hypos[in_idx].create_next(new_tok, new_prob,
-                                                         decoder_output[0][in_idx].unsqueeze(0).unsqueeze(0),
-                                                         True,
-                                                         p_attn[in_idx].unsqueeze(0).unsqueeze(0)
-                                                         if p_attn is not None else None, non_word)
+            completed_hypos = sorted(completed_hypos, key=lambda h: -h.avg_log_prob)[:beam_size]
+            hypos = sorted(n_hypos, key=lambda h: -h.avg_log_prob)[:beam_size]
+            step=step+1
+        if(len(completed_hypos)<beam_size):
+            return completed_hypos + hypos[:beam_size-len(completed_hypos)]
+        else:
+            return completed_hypos
 
-                    new_hypos.append(new_hypo)
 
-            new_hypos = sorted(new_hypos, key=lambda h: -h.avg_log_prob)
-            hypos = []
-            new_complete_results, new_incomplete_results = [], []
-            for nh in new_hypos:
-                length = len(nh)
-                if nh.tokens[-1] == self.vocab.EOS:
-                    if(len(new_complete_results) < beam_size and min_out_len <= length <= max_out_len):
-                        new_complete_results.append(nh)
-                elif len(hypos) < beam_size and length < max_out_len:
-                    hypos.append(nh)
-                elif length == max_out_len and len(new_incomplete_results) < beam_size:
-                    new_incomplete_results.append(nh)
-            if new_complete_results:
-                results.extend(new_complete_results)
-            elif new_incomplete_results:
-                backup_results.extend(new_incomplete_results)
-            step += 1
-        if not results:
-            results = backup_results
-        return sorted(results, key=lambda h: -h.avg_log_prob)[:beam_size]
+                
+
+
+    # def beam_search(self, input_tensor, input_lengths=None, ext_vocab_size=None, beam_size=4, *, 
+    #                 min_out_len=1, max_out_len=None, len_in_words=True) -> List[Hypothesis]:
+
+    #     batch_size = input_tensor.size(1)
+    #     assert batch_size == 1
+    #     if max_out_len is None:
+    #         max_out_len = self.max_dec_steps-1
+
+    #     encoder_embedded = self.embedding(self.filter_oov(input_tensor, ext_vocab_size))
+
+    #     input_mask = (input_mask != pad).unsqueeze(-2)
+    #     output_mask = make_std_mask(self.target_tensor, pad)
+    #     input_embedding = self.embedding(self.filter_oov(input_tensor, ext_vocab_size))
+    #     encoder_output = self.encoder(input_embedding, input_mask)
+    #     decoder_output, p_attn = self.decoder(target_tensor, encoder_output, input_mask, output_mask)
+    #     at = torch.sum(p_attn, dim=1)
+    #     at = torch.softmax(at, dim=2)
+    #     context = torch.bmm(at, encoder_output)
+    #     decoder_hidden = context
+
+    #     encoder_outputs = encoder_output.expand(-1, beam_size, -1).contiguous()
+    #     input_tensor = input_tensor.expand(-1, beam_size).contiguous()
+
+    #     hypos = [Hypothesis([self.vocab.SOS], [], decoder_hidden, [], [], 1)]
+    #     results, backup_results = [], []
+    #     step=0
+    #     while hypos and step < 2 * max_out_len:
+
+    #         n_hypos = len(hypos)
+    #         if(n_hypos < beam_size):
+    #             hypos.extend(hypos[-1] for _ in range(beam_size - n_hypos))
+
+    #         decoder_input = torch.tensor([h.tokens[-1] for h in hypos], device=DEVICE)
+    #         decoder_hidden = torch.cat([h.dec_hidden for h in hypos], 1)
+    #         decoder_states = torch.cat([torch.cat(h.dec_states, 0) for h in hypos], 1)
+
+    #         top_v, top_i = decoder_output.data.topk(beam_size)
+
+    #         new_hypos = []
+    #         for in_idx in range(n_hypos):
+    #             for out_idx in range(beam_size):
+    #                 new_tok = top_i[in_idx][out_idx].item()
+    #                 new_prob = top_vp[in_idx][out_idx].item()
+    #                 if(len_in_words):
+    #                     non_word = not self.vocab.is_word(new_tok)
+    #                 else:
+    #                     non_word = new_tok == self.vocab.EOS
+
+    #                 new_hypo = hypos[in_idx].create_next(new_tok, new_prob,
+    #                                                      decoder_output[0][in_idx].unsqueeze(0).unsqueeze(0),
+    #                                                      True,
+    #                                                      p_attn[in_idx].unsqueeze(0).unsqueeze(0)
+    #                                                      if p_attn is not None else None, non_word)
+
+    #                 new_hypos.append(new_hypo)
+
+    #         new_hypos = sorted(new_hypos, key=lambda h: -h.avg_log_prob)
+    #         hypos = []
+    #         new_complete_results, new_incomplete_results = [], []
+    #         for nh in new_hypos:
+    #             length = len(nh)
+    #             if nh.tokens[-1] == self.vocab.EOS:
+    #                 if(len(new_complete_results) < beam_size and min_out_len <= length <= max_out_len):
+    #                     new_complete_results.append(nh)
+    #             elif len(hypos) < beam_size and length < max_out_len:
+    #                 hypos.append(nh)
+    #             elif length == max_out_len and len(new_incomplete_results) < beam_size:
+    #                 new_incomplete_results.append(nh)
+    #         if new_complete_results:
+    #             results.extend(new_complete_results)
+    #         elif new_incomplete_results:
+    #             backup_results.extend(new_incomplete_results)
+    #         step += 1
+    #     if not results:
+    #         results = backup_results
+    #     return sorted(results, key=lambda h: -h.avg_log_prob)[:beam_size]
 
 
 
