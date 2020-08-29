@@ -18,7 +18,7 @@ from params import Params
 from test import eval_batch, eval_batch_output
 from Pointgen import TransformerPointgen, DEVICE
 
-
+torch.set_num_threads(15)
 def train_batch(batch: Batch, model: TransformerPointgen, criterion, optimizer, *,
                 pack_seq=True, forcing_ratio=0.5, partial_forcing=True, sample=False,
                 rl_ratio: float=0, vocab=None, grad_norm: float=0, show_cover_loss=False):
@@ -211,9 +211,13 @@ if __name__ == "__main__":
 
   if args.resume_from:
     print("Resuming from %s..." % args.resume_from)
-    train_status = torch.load(args.resume_from)
-    m = torch.load('%s.%02d.pt' % (args.resume_from[:-9], train_status['epoch']))
-    p = train_status['params']
+    # train_status = torch.load(args.resume_from)
+    # print("Epoch number %02d" % train_status['epoch'])
+    # m = torch.load('%s.%02d.pt' % (args.resume_from[:-9], train_status['epoch']))
+    m = torch.load(args.resume_from)
+    # p = train_status['params']
+    p = Params()
+    train_status = None
   else:
     p = Params()
     m = None

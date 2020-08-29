@@ -130,10 +130,11 @@ def eval_bs_batch(batch: Batch, model: TransformerPointgen, vocab: Vocab, *, pac
     file_content = None
   if batch.examples[0].tgt is not None:  # run ROUGE if gold standard summary exists
     gold_summaries = [batch.examples[0].tgt for _ in range(len(decoded_batch))]
-    scores = rouge(gold_summaries, decoded_batch)
+    # scores = rouge(gold_summaries, decoded_batch)
+    scores=None
     if details:
       file_content += "\n\n\n[Reference Question]\n" + format_tokens(batch.examples[0].tgt)
-      file_content += "\n\n\n[ROUGE Scores]\n" + format_rouge_scores(scores[0]) + "\n"
+      # file_content += "\n\n\n[ROUGE Scores]\n" + format_rouge_scores(scores[0]) + "\n"
   else:
     scores = None
   if details:
@@ -155,7 +156,7 @@ def eval_bs(test_set: Dataset, vocab: Vocab, model: TransformerPointgen, params:
   prog_bar = tqdm(range(1, n_samples + 1))
   for i in prog_bar:
     batch = next(test_gen)
-    scores, file_content = eval_bs_batch(batch, model, vocab, pack_seq=params.pack_seq,
+    scores, file_content = eval_bs_batch(batch, model, vocab, best_only=False, pack_seq=params.pack_seq,
                                          beam_size=params.beam_size,
                                          min_out_len=params.min_out_len,
                                          max_out_len=params.max_out_len,

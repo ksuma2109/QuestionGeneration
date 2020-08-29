@@ -271,7 +271,7 @@ class TransformerPointgen(nn.Module):
         else:
             self.embed_size = params.embed_size
             embedding_weights = None
-        self.initial_probs = get_initial_probs(self.vocab_size, vocab.SOS)
+        # self.initial_probs = get_initial_probs(self.vocab_size, vocab.SOS)
         self.initial_token_idx = 1
         self.max_dec_steps = params.max_tgt_len+1 if max_dec_steps is None else max_dec_steps
         self.pointer = params.pointer
@@ -282,6 +282,8 @@ class TransformerPointgen(nn.Module):
         self.pos_encoding = PositionalEncoding(self.embed_size,  dropout=params.dropout)
         self.input_embed = nn.Linear(self.embed_size, params.hidden_size)
         self.output_embed = nn.Linear(self.embed_size, params.hidden_size)
+        # self.buf = torch.zeros([1, ext_vocab_size]).repeat(batch_size, 1, 1)
+        # self.buf[:, self.vocab.SOS, :] = 1.0
 
         self.embedding = nn.Embedding(self.vocab_size, self.embed_size, padding_idx=vocab.PAD,
                                 _weight=embedding_weights)
@@ -289,11 +291,14 @@ class TransformerPointgen(nn.Module):
         self.encoder = Encoder(params.hidden_size, n_heads=params.num_heads, ff_size=params.ff_size, dropout=params.dropout, n_layers=params.num_encoder_layers)
         self.decoder = Decoder(params.hidden_size, n_heads=params.num_heads, ff_size=params.ff_size, dropout=params.dropout, n_layers=params.num_decoder_layers)
 
-        self.enc_bilinear = nn.Bilinear(params.hidden_size, params.hidden_size, 1)
         self.linear_vocab1 = nn.Linear(2*params.hidden_size, params.hidden_size, bias=True)
         self.linear_vocab2 = nn.Linear(params.hidden_size, self.vocab_size, bias=True)
+        # self.layer_norm1 = nn.LayerNorm(self.vocab_size)
+
 
         self.linear_gen = nn.Linear(2*params.hidden_size + self.embed_size, 1, bias=True)
+        # self.learning_factor = nn.scalar(0.5)
+        # self.learning_factor = nn.Parameter(0.5, required_grad=True, device=DEVICE)
         
 
     def filter_oov(self, tensor, ext_vocab_size):
@@ -308,6 +313,10 @@ class TransformerPointgen(nn.Module):
                 saved_out: Seq2SeqOutput=None, visualize: bool=None, include_cover_loss: bool=False) -> Seq2SeqOutput:
         input_length = input_tensor.size(0)
         batch_size = input_tensor.size(1)
+        # print("CHECK")
+        # print(self.vocab.EOS)
+        # print(input_tensor[:, 10])
+        # print(input_lengths)
         # log_prob = not (sample or self.decoder.pointer)
         # if(visualize is None):
         #     visualize = criterion is None
@@ -383,13 +392,24 @@ class TransformerPointgen(nn.Module):
         # vocab_vec and p_gen - (B, OU, V_S)
         dec_output = torch.cat((decoder_output, context), dim=2)
         # print(dec_output.shape)
-        vocab1 = self.linear_vocab1(dec_output)
+        vocab1 = F.tanh(self.linear_vocab1(dec_output))
         # print(vocab1.shape)
-        vocab_vec = self.linear_vocab2(vocab1)
-        # print(vocab_vec.shape)
-        p_gen = self.linear_gen(torch.cat((dec_output, output_embedding), dim=2))
+        vocab_vec = F.tanh(self.linear_vocab2(vocab1))
+        # vocab_vec = self.layer_norm1(vocab_vec)
+        vocab_vec = vocab_vec/(vocab_vec+eps).sum(0).expand_as(vocab_vec) 
+        # vocab_vec[torch.isnan(vocab_vec)]=0   #if an entire column is zero, division by 0 will cause NaNs
+        vocab_vec = 2*vocab_vec - 1
+        # vocab_vec1 = F.log_softmax(vocab_vec)
+        # print(vocab_vec1)
+        p_gen = F.tanh(self.linear_gen(torch.cat((dec_output, output_embedding), dim=2)))
+        # print(p_gen.shape)
+        p_gen = torch.sigmoid(p_gen)
+        # print("P_GEN")
+        # print(p_gen)
+        
         # p_gen = self.linear_gen(torch.cat((torch.cat(torch.cat((at, decoder_output), dim=2))), output_embedding), dim=2)
-        gen_probs = p_gen*vocab_vec
+        gen_probs = p_gen*vocab_vec+eps
+
         # print(gen_probs.shape)
         p_copy = 1.0-p_gen 
         # Output size - (B, OU, E_V_S, )
@@ -404,6 +424,12 @@ class TransformerPointgen(nn.Module):
         # print(at.shape)
         # copy_probs = 
         copy_probs = p_copy*at
+
+        copy_probs = copy_probs/(copy_probs+eps).sum(0).expand_as(copy_probs) 
+        # copy_probs[torch.isnan(copy_probs)]=0   #if an entire column is zero, division by 0 will cause NaNs
+        copy_probs = 2*copy_probs - 1
+        # copy_probs = self.learning_factor*copy_probs
+        # copy_probs1 = F.log_softmax(copy_probs)
         # print("Copy probs")
         # print(copy_probs.shape)
         # print(at.shape)
@@ -414,12 +440,21 @@ class TransformerPointgen(nn.Module):
         # print(output.shape)
         # print(inp.shape)
         # print(copy_probs.shape)
+        print(torch.argmax(output[0], 1, keepdim=False))
         output.scatter_add_(2, inp, copy_probs)
+        # print(output)
+        # print(torch.argmax(output[0], 1, keepdim=False))
         # output.scatter_add_(2, inp[:, :-1, :], copy_probs[:, :-1, :])
-        output = F.softmax(output, dim=2)
-        tgt = torch.zeros(1, ext_vocab_size, device=DEVICE).repeat(batch_size, 1, 1)
-        tgt[:, :, self.vocab.SOS] = 1.0
-        output1 = torch.cat((tgt, output[:, :target_length-1, :]), dim=1)
+        # output = F.sigmoid(output)
+        # output = F.softmax(output, dim=2)
+        # print(output)
+        print(torch.argmax(output[0], 1, keepdim=False))
+
+        # tgt = torch.zeros(batch_size, 1, ext_vocab_size, device=DEVICE)
+        # tgt[:, :, self.vocab.SOS] = 1.0
+
+
+        # output1 = torch.cat((tgt, output), dim=1)
         # print(output1.shape)
         # output = F.softmax(output, dim=2)
 
@@ -429,7 +464,11 @@ class TransformerPointgen(nn.Module):
         
         # print(output1.shape)
         # print(target_tensor.shape)
-        ce_loss = F.cross_entropy(output1.transpose(1, 2), out_tensor, reduction='mean')
+
+        # out = torch.zeros(batch_size, 1, dtype=torch.long, device=DEVICE).fill_(self.vocab.SOS)
+        output=output+eps
+        output=F.tanh(output)
+        ce_loss = F.cross_entropy(output.transpose(1, 2), out_tensor, reduction='mean')
         # print(ce_loss.item())
 
         # enc_energy = self.enc_bilinear(decoder_output.transpose(1, 0), encoder_output.transpose(1, 0))
@@ -515,7 +554,7 @@ class TransformerPointgen(nn.Module):
                 # print("Output tensor type")
                 # print(output_tensor.dtype)
                 r = self.forward(input_tensor, output_tensor, ext_vocab_size=ext_vocab_size)
-                # print(r.ptr_probs.shape)
+                # print(r.ptr_probs)
                 top_v, top_k = r.ptr_probs.data.topk(beam_size, dim=2)
                 # print(top_v)
                 # print(top_k)
@@ -529,6 +568,7 @@ class TransformerPointgen(nn.Module):
             completed_hypos = sorted(completed_hypos, key=lambda h: -h.avg_log_prob)[:beam_size]
             hypos = sorted(n_hypos, key=lambda h: -h.avg_log_prob)[:beam_size]
             step=step+1
+
         if(len(completed_hypos)<beam_size):
             return completed_hypos + hypos[:beam_size-len(completed_hypos)]
         else:
