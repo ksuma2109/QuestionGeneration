@@ -4,12 +4,12 @@ from typing import Optional, Union, List
 class Params:
   # Model architecture
   vocab_size: int = 30000
-  hidden_size: int = 512  # of the encoder; default decoder size is doubled if encoder is bidi
+  hidden_size: int = 256  # of the encoder; default decoder size is doubled if encoder is bidi
   dec_hidden_size: Optional[int] = 200  # if set, a matrix will transform enc state into dec state
   num_encoder_layers: int = 2
   num_decoder_layers: int = 2
   num_heads: int = 4
-  ff_size: int = 2048
+  ff_size: int = 512
   embed_size: int = 100
   enc_bidi: bool = True
   enc_attn: bool = True  # decoder has attention over encoder states?
@@ -33,15 +33,15 @@ class Params:
 
   # Training
   optimizer: str = 'adam'  # adam or adagrad
-  lr: float = 0.001  # learning rate
-  adagrad_accumulator: float = 0.1
+  lr: float = 0.01  # learning rate
+  adagrad_accumulator: float = 0.05
   lr_decay_step: int = 5  # decay lr every how many epochs?
   lr_decay: Optional[float] = None  # decay lr by multiplying this factor
   batch_size: int = 32
   n_batches: int = 1000  # how many batches per epoch
-  val_batch_size: int = 32
-  n_val_batches: int = 100  # how many validation batches per epoch
-  n_epochs: int = 100
+  val_batch_size: int = 16
+  n_val_batches: int = 10  # how many validation batches per epoch
+  n_epochs: int = 750
   pack_seq: bool = True  # use packed sequence to skip PAD inputs?
   forcing_ratio: float = 0.75  # initial percentage of using teacher forcing
   partial_forcing: bool = True  # in a seq, can some steps be teacher forced and some not?
@@ -65,12 +65,12 @@ class Params:
   truncate_tgt: bool = True  # truncate to max_tgt_len? if false, drop example if too long
 
   # Saving model automatically during training
-  model_path_prefix: Optional[str] = 'checkpoints/textgen6'
-  keep_every_epoch: bool = False  # save all epochs, or only the best and the latest one?
+  model_path_prefix: Optional[str] = 'checkpoints/textgen13'
+  keep_every_epoch: bool = True  # save all epochs, or only the best and the latest one?
 
   # Testing
   beam_size: int = 4
-  min_out_len: int = 60
+  min_out_len: int = 10
   max_out_len: Optional[int] = 100
   out_len_in_words: bool = False
   test_data_path: str = 'data/test.txt'
